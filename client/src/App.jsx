@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import "./App.css";
+import Dashboard from "./components/Dashboard.jsx";
+import EditProfile from "./components/EditProfile.jsx";
 
 const API_URL = "http://localhost:4000";
 
@@ -26,6 +28,11 @@ function App() {
     password: "",
   });
 
+  const [currentUser, setCurrentUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const [editingProfile, setEditingProfile] = useState(false);
   // Update whichever field the user changes
   function handleChange(event) {
     const { name, value } = event.target;
@@ -123,49 +130,74 @@ function App() {
     }
   }
 
-  async function handleGoogleSuccess(credentialResponse) {
-    const credential = credentialResponse.credential;
+  
+async function handleGoogleSuccess(credentialResponse) {
+  const credential = credentialResponse.credential;
 
-    if (!credential) {
-      setError("Google did not return a credential.");
-      return;
-    }
+  if (!credential) {
+    setError("Google did not return a credential.");
+    return;
+  }
 
-    setError("");
-    setSuccess("");
-    setLoading(true);
+  setError("");
+  setSuccess("");
+  setLoading(true);
 
-    try {
-      const response = await fetch(
-        `${API_URL}/api/auth/google`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ credential }),
-        }
-      );
+  try {
+    const response = await fetch(
+      `${API_URL}/api/auth/google`,
+      {
+        method: "POST",
 
-      const data = await response.json();
+        // Allow browser to receive and send session cookies
+        credentials: "include",
 
-      if (!response.ok) {
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          credential,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (data.code === "ACCOUNT_LINK_REQUIRED") {
         throw new Error(
-          data.error || "Google verification failed."
+          "An account already uses this email. " +
+          "Sign in using your existing method. " +
+          "Google linking will be added separately."
         );
       }
 
-      setSuccess(
-        `Google identity verified for ${
-          data.user?.email || "your account"
-        }.`
+      throw new Error(
+        data.error || "Google authentication failed."
       );
-    } catch (err) {
-      setError(err.message || "Google sign-in failed.");
-    } finally {
-      setLoading(false);
     }
+
+    // The backend has now:
+    // 1. Verified Google's token
+    // 2. Found or created the database user
+    // 3. Created a persistent application session
+
+    setCurrentUser(data.user);
+
+    // We no longer need to display the login form
+    setSuccess("");
+    setError("");
+  } catch (error) {
+    console.error("Google authentication failed:", error);
+
+    setError(
+      error.message || "Unable to sign in with Google."
+    );
+  } finally {
+    setLoading(false);
   }
+}
 
 
 function handleLoginChange(event) {
@@ -198,30 +230,25 @@ async function handleLoginSubmit(event) {
   setLoading(true);
 
   try {
-    const response = await fetch(
-      `${API_URL}/api/auth/login`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(loginForm),
-      }
-    );
+    const response = await fetch(`${API_URL}/api/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(loginForm),
+      credentials: "include",
+    });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(
-        data.error || "Login verification failed."
-      );
+      throw new Error(data.error || "Login verification failed.");
     }
 
     // We will turn this into a real login session
     // in Lesson 7.
-    setSuccess(
-      `Credentials verified! Welcome, ${data.user.firstName}.`
-    );
+    setCurrentUser(data.user);
+    setSuccess("");
 
     setLoginForm({
       email: "",
@@ -235,6 +262,122 @@ async function handleLoginSubmit(event) {
     setLoading(false);
   }
 }
+
+
+useEffect(() => {
+  const controller = new AbortController();
+
+  async function restoreSession() {
+    try {
+      const response = await fetch(
+        `${API_URL}/api/auth/me`,
+        {
+          method: "GET",
+          credentials: "include",
+          signal: controller.signal,
+        }
+      );
+
+      if (response.status === 401) {
+        setCurrentUser(null);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error("Unable to restore session");
+      }
+
+      const data = await response.json();
+      setCurrentUser(data.user);
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        console.error("Session check failed:", error);
+        setError("Could not check your login session.");
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setCheckingSession(false);
+      }
+    }
+  }
+
+  restoreSession();
+
+  return () => controller.abort();
+}, []);
+
+
+async function handleLogout() {
+  if (loggingOut) return;
+
+  setLoggingOut(true);
+  setError("");
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/auth/logout`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Unable to log out.");
+    }
+
+    setCurrentUser(null);
+    setView("login");
+
+    setLoginForm({
+      email: "",
+      password: "",
+    });
+  } catch (error) {
+    setError(error.message || "Logout failed.");
+  } finally {
+    setLoggingOut(false);
+  }
+}
+
+if (checkingSession) {
+  return (
+    <div className="auth-page">
+      <p>Checking your session...</p>
+    </div>
+  );
+}
+
+
+if (currentUser) {
+  if (editingProfile) {
+    return (
+      <EditProfile
+        user={currentUser}
+        onCancel={() => setEditingProfile(false)}
+        onSaved={(updatedUser) => {
+          setCurrentUser(updatedUser);
+          setEditingProfile(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <Dashboard
+      user={currentUser}
+      onLogout={handleLogout}
+      loggingOut={loggingOut}
+      error={error}
+      onEdit={() => setEditingProfile(true)}
+    />
+  );
+}
+
 
 
   return (

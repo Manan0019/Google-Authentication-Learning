@@ -49,21 +49,16 @@ router.post("/login", async (req, res) => {
       WHERE LOWER(u.email) = $1
       LIMIT 1
       `,
-      [cleanEmail]
+      [cleanEmail],
     );
 
     const user = result.rows[0];
 
     // Step 3: Verify password with Argon2id
     // For unknown accounts, verify a dummy hash.
-    const hashToCheck = user
-      ? user.password_hash
-      : await dummyHashPromise;
+    const hashToCheck = user ? user.password_hash : await dummyHashPromise;
 
-    const passwordValid = await argon2.verify(
-      hashToCheck,
-      password
-    );
+    const passwordValid = await argon2.verify(hashToCheck, password);
 
     // Step 4: Reject failed credentials
     if (!user || !passwordValid) {
@@ -74,16 +69,42 @@ router.post("/login", async (req, res) => {
 
     // Step 5: Return safe profile fields
     // Do NOT return password_hash.
-    return res.status(200).json({
-      message: "Credentials verified successfully.",
-      user: {
-        id: user.id,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        email: user.email,
-        dateOfBirth: user.date_of_birth,
-        profilePicture: user.profile_picture_url,
-      },
+
+    // Create a fresh session ID after authentication.
+    req.session.regenerate((regenerateError) => {
+      if (regenerateError) {
+        console.error("Session regeneration failed:", regenerateError);
+
+        return res.status(500).json({
+          error: "Unable to establish login session.",
+        });
+      }
+
+      // Store only the internal user ID.
+      req.session.userId = String(user.id);
+
+      // Explicitly persist before sending success.
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error("Session save failed:", saveError);
+
+          return res.status(500).json({
+            error: "Unable to save login session.",
+          });
+        }
+
+        return res.status(200).json({
+          message: "Logged in successfully.",
+          user: {
+            id: user.id,
+            firstName: user.first_name,
+            lastName: user.last_name,
+            email: user.email,
+            dateOfBirth: user.date_of_birth,
+            profilePicture: user.profile_picture_url,
+          },
+        });
+      });
     });
   } catch (error) {
     console.error("Login verification failed:", error);
