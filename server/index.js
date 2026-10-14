@@ -1,8 +1,9 @@
-
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { OAuth2Client } from "google-auth-library";
+import signupRoutes from "./signupRoutes.js";
+import loginRoutes from "./loginRoutes.js";
 
 const app = express();
 
@@ -22,6 +23,10 @@ app.use(
 );
 
 app.use(express.json({ limit: "16kb" }));
+
+app.use("/api/auth", signupRoutes);
+
+app.use("/api/auth", loginRoutes);
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
