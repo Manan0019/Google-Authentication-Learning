@@ -1,0 +1,11 @@
+# Environment and secret configuration
+.env
+.env.*
+!.env.example
+
+# Google/service-account credentials and private keys
+*credentials*.json
+*client_secret*.json
+*service-account*.json
+*.pem
+*.key
