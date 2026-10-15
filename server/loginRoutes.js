@@ -40,7 +40,7 @@ router.post("/login", async (req, res) => {
         u.first_name,
         u.last_name,
         u.email,
-        u.date_of_birth,
+        TO_CHAR(date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
         u.profile_picture_url,
         c.password_hash
       FROM public.app_users AS u
