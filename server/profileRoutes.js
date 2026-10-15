@@ -92,7 +92,7 @@ router.get("/me", requireAuthentication, async (req, res) => {
         first_name,
         last_name,
         email,
-        date_of_birth,
+        TO_CHAR(date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
         profile_picture_url,
         created_at
       FROM public.app_users
@@ -108,11 +108,6 @@ router.get("/me", requireAuthentication, async (req, res) => {
         error: "User account no longer exists.",
       });
     }
-
-    console.log("DOB from database:", user.date_of_birth);
-    console.log("DOB ISO:", user.date_of_birth?.toISOString?.());
-    console.log("DOB type:", typeof user.date_of_birth);
-    console.log("DOB JSON:", JSON.stringify(user.date_of_birth));
 
     return res.json({
       user: {
@@ -175,7 +170,7 @@ router.patch(
           first_name,
           last_name,
           email,
-          date_of_birth,
+          TO_CHAR(date_of_birth, 'YYYY-MM-DD') AS date_of_birth,
           profile_picture_url,
           created_at
         `,
